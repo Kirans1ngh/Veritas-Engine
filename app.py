@@ -97,7 +97,7 @@ else:
                 c3.info(f"Top-2 Models Used: {top2[0]}, {top2[1]}")
                 
                 st.subheader("Feature Interpretability (SHAP)")
-                fig, text_reasoning = st.session_state.engine.explain_prediction(X_patient_scaled, top2)
+                fig, text_reasoning = st.session_state.engine.explain_prediction(X_patient_scaled, top2, patient_data)
                 st.info(text_reasoning)
                 st.pyplot(fig)
                 plt.close(fig) # Prevent memory leaks

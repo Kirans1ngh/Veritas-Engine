@@ -143,7 +143,6 @@ class VeritasHealthEngine:
 
     def _get_ensemble_wrapper(self, top_2_names):
         def wrapper(X_array):
-            # X_array is a numpy array passed by shap
             df_x = pd.DataFrame(X_array, columns=self.feature_names)
             preds = []
             for name in top_2_names:
@@ -151,7 +150,7 @@ class VeritasHealthEngine:
             return np.mean(preds, axis=0)
         return wrapper
 
-    def explain_prediction(self, X_patient_scaled, top_2_names):
+    def explain_prediction(self, X_patient_scaled, top_2_names, patient_data=None):
         wrapper_func = self._get_ensemble_wrapper(top_2_names)
         explainer = shap.KernelExplainer(wrapper_func, self.background_data)
         
@@ -166,7 +165,7 @@ class VeritasHealthEngine:
         shap.summary_plot(vals, X_patient_scaled, plot_type="bar", show=False)
         plt.tight_layout()
         
-        # Generate Text Explanation
+        # Plain English Generator
         patient_vals = vals[0]
         feature_impacts = []
         for i, val in enumerate(patient_vals):
@@ -175,15 +174,90 @@ class VeritasHealthEngine:
                 feature_impacts.append((feature_name, val))
                 
         feature_impacts.sort(key=lambda x: abs(x[1]), reverse=True)
-        top_positive = [f.replace('_', ' ') for f, v in feature_impacts if v > 0][:3]
-        top_negative = [f.replace('_', ' ') for f, v in feature_impacts if v < 0][:3]
         
-        text_explanation = "**Prediction Rationale (Powered by SHAP):**\n\n"
+        # Generator for curated personalized sentences
+        def get_insight_sentence(feature, impact_type):
+            if patient_data is None:
+                return f"your {feature.replace('_', ' ').lower()}"
+                
+            base_feat = None
+            for k in patient_data.keys():
+                if feature.startswith(k):
+                    base_feat = k
+                    break
+            
+            if not base_feat:
+                return f"your {feature.replace('_', ' ').lower()}"
+
+            val = patient_data[base_feat]
+            
+            if impact_type == 'risk':
+                if base_feat == 'Smoking_Status' and str(val).lower() in ['yes', 'former']:
+                    return f"your history of smoking ('{val}') is a major risk factor—quitting or maintaining strict cessation is critical"
+                elif base_feat == 'Fasting_Blood_Sugar':
+                    return f"your fasting blood sugar level of {val} mg/dL is elevated, heavily driving up your risk"
+                elif base_feat == 'Postprandial_Blood_Sugar':
+                    return f"your post-meal blood sugar level of {val} mg/dL is higher than optimal after eating"
+                elif base_feat == 'HBA1C':
+                    return f"your HbA1c level of {val}% indicates prolonged high blood sugar over recent months"
+                elif base_feat == 'Glucose_Tolerance_Test_Result':
+                    return f"your glucose tolerance test result of {val} mg/dL points to impaired metabolic processing"
+                elif base_feat == 'BMI':
+                    return f"your BMI of {val} puts added strain on your metabolic system—weight management is strongly advised"
+                elif base_feat == 'Age':
+                    return f"your age ({val} years) naturally limits metabolic flexibility, driving up the baseline risk"
+                elif base_feat == 'Family_History' and str(val).lower() == 'yes':
+                    return "your family history of diabetes creates a strong genetic predisposition"
+                elif base_feat == 'Hypertension' and str(val).lower() == 'yes':
+                    return "your current battle with high blood pressure (hypertension) significantly compounds your metabolic risk"
+                elif base_feat == 'Physical_Activity' and str(val).lower() == 'low':
+                    return "your low level of physical activity is slowing your metabolism—incorporating daily exercise would greatly help"
+                elif base_feat == 'Diet_Type':
+                    return f"your current dietary habits ({val}) are notably increasing your risk"
+                elif base_feat == 'Stress_Level' and str(val).lower() == 'high':
+                    return "your high stress levels are negatively impacting your hormonal balance and blood sugar"
+                else:
+                    return f"your {base_feat.replace('_', ' ').lower()} ({val}) is elevating your risk profile"
+            else: # Protective
+                if base_feat == 'Physical_Activity' and str(val).lower() in ['high', 'medium']:
+                    return f"your strong commitment to physical activity ('{val}') is doing an excellent job protecting your metabolism"
+                elif base_feat == 'Diet_Type':
+                    return f"your healthy dietary choices ('{val}') actively keep your risk low by providing good nutritional balance"
+                elif base_feat == 'Fasting_Blood_Sugar':
+                    return f"maintaining a perfectly healthy fasting blood sugar level of {val} mg/dL is greatly reducing your risk"
+                elif base_feat == 'HBA1C':
+                    return f"your excellent HbA1c level of {val}% shows outstanding long-term blood sugar control"
+                elif base_feat == 'BMI':
+                    return f"maintaining a healthy BMI of {val} acts as a massive protective factor for your system"
+                elif base_feat == 'Stress_Level' and str(val).lower() == 'low':
+                    return "your well-managed stress levels keep harmful cortisol spikes away, contributing positively to your health"
+                elif base_feat == 'Smoking_Status' and str(val).lower() == 'no':
+                    return "the fact that you completely avoid smoking acts as a powerful shield for your cardiovascular and metabolic health"
+                else:
+                    return f"your {base_feat.replace('_', ' ').lower()} ({val}) is actively protecting your health"
+
+        top_positive = [get_insight_sentence(f, 'risk') for f, v in feature_impacts if v > 0][:3]
+        top_negative = [get_insight_sentence(f, 'protective') for f, v in feature_impacts if v < 0][:3]
+        
+        # Remove duplicates while preserving order
+        top_positive = list(dict.fromkeys(top_positive))
+        top_negative = list(dict.fromkeys(top_negative))
+        
+        text_explanation = "🩺 **Your Personalized Health Insights:**\n\n"
+        
         if top_positive:
-            text_explanation += f"- 🔴 **Increased Risk Factors**: {', '.join(top_positive)}\n"
+            text_explanation += "### Areas of Concern (Driving Risk Up):\n"
+            for insight in top_positive:
+                text_explanation += f"- {insight.capitalize()}.\n"
+            text_explanation += "\n*Finding ways to manage or improve these areas alongside a medical professional could significantly lower your overall risk.*\n\n"
+            
         if top_negative:
-            text_explanation += f"- 🟢 **Decreased Risk Factors**: {', '.join(top_negative)}\n"
+            text_explanation += "### Protective Factors (Keeping Risk Low):\n"
+            for insight in top_negative:
+                text_explanation += f"- {insight.capitalize()}.\n"
+            text_explanation += "\n*You are doing excellent in these areas. Keep up the good work!*\n"
+            
         if not top_positive and not top_negative:
-            text_explanation += "The prediction is very close to the baseline average risk."
+            text_explanation += "Your health profile is remarkably well balanced. No single factor is drastically pushing your risk up or down."
             
         return fig, text_explanation
